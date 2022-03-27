@@ -1710,6 +1710,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "hardware_codec"
+version = "0.1.0"
+dependencies = [
+ "cc",
+ "log",
+]
+
+[[package]]
 name = "hashbrown"
 version = "0.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3567,6 +3575,7 @@ dependencies = [
  "gstreamer",
  "gstreamer-app",
  "gstreamer-video",
+ "hardware_codec",
  "libc",
  "num_cpus",
  "quest",

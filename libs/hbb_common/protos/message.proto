@@ -9,6 +9,14 @@ message VP9 {
 
 message VP9s { repeated VP9 frames = 1; }
 
+message HFrame {
+  bytes data = 1;
+  bool key = 2;
+  int64 pts = 3;
+}
+
+message HFrames { repeated HFrame frames = 1; }
+
 message RGB { bool compress = 1; }
 
 // planes data send directly in binary for better use arraybuffer on web
@@ -22,6 +30,7 @@ message VideoFrame {
     VP9s vp9s = 6;
     RGB rgb = 7;
     YUV yuv = 8;
+    HFrames hframes = 9;
   }
 }
 

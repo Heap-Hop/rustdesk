@@ -20,7 +20,7 @@ use hbb_common::{
     AddrMangle, IdPk, ResultType, Stream,
 };
 use magnum_opus::{Channels::*, Decoder as AudioDecoder};
-use scrap::{Decoder, Image, VideoCodecId};
+use scrap::{hcodec::HDec, Decoder, Image, VideoCodecId};
 use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
@@ -628,6 +628,7 @@ impl AudioHandler {
 
 pub struct VideoHandler {
     decoder: Decoder,
+    hdec: HDec,
     pub rgb: Vec<u8>,
 }
 
@@ -635,6 +636,7 @@ impl VideoHandler {
     pub fn new() -> Self {
         VideoHandler {
             decoder: Decoder::new(VideoCodecId::VP9, (num_cpus::get() / 2) as _).unwrap(),
+            hdec: HDec::new("h264_cuvid".to_owned()).unwrap(), //should not unwrap
             rgb: Default::default(),
         }
     }
@@ -657,6 +659,15 @@ impl VideoHandler {
             last_frame.rgb(1, true, &mut self.rgb);
             Ok(true)
         }
+    }
+
+    pub fn handle_hdec(&mut self, hframes: &HFrames) -> ResultType<bool> {
+        for hframe in hframes.frames.iter() {
+            for frame in self.hdec.decode(&hframe.data)? {
+                self.rgb = frame;
+            }
+        }
+        Ok(self.rgb.len() > 0)
     }
 
     pub fn reset(&mut self) {
@@ -1039,6 +1050,19 @@ where
                             if let Ok(true) = video_handler.handle_vp9s(vp9s) {
                                 video_callback(&video_handler.rgb);
                             }
+                        }
+                        match &vf.union {
+                            Some(video_frame::Union::vp9s(vp9s)) => {
+                                if let Ok(true) = video_handler.handle_vp9s(vp9s) {
+                                    video_callback(&video_handler.rgb);
+                                }
+                            }
+                            Some(video_frame::Union::hframes(hframes)) => {
+                                if let Ok(true) = video_handler.handle_hdec(hframes) {
+                                    video_callback(&video_handler.rgb);
+                                }
+                            }
+                            _ => todo!(),
                         }
                     }
                     MediaData::Reset => {

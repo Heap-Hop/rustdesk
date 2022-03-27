@@ -26,7 +26,9 @@ use hbb_common::tokio::{
         Mutex as TokioMutex,
     },
 };
-use scrap::{Capturer, Config, Display, EncodeFrame, Encoder, VideoCodecId, STRIDE_ALIGN};
+use scrap::{
+    hcodec::HEnc, Capturer, Config, Display, EncodeFrame, Encoder, VideoCodecId, STRIDE_ALIGN,
+};
 use std::{
     collections::HashSet,
     io::ErrorKind::WouldBlock,
@@ -185,26 +187,7 @@ fn run(sp: GenericService) -> ResultType<()> {
     );
     // Capturer object is expensive, avoiding to create it frequently.
     let mut c = Capturer::new(display, true).with_context(|| "Failed to create capturer")?;
-
-    let q = get_image_quality();
-    let (bitrate, rc_min_quantizer, rc_max_quantizer, speed) = get_quality(width, height, q);
-    log::info!("bitrate={}, rc_min_quantizer={}", bitrate, rc_min_quantizer);
     let mut wait = WAIT_BASE;
-    let cfg = Config {
-        width: width as _,
-        height: height as _,
-        timebase: [1, 1000], // Output timestamp precision
-        bitrate,
-        codec: VideoCodecId::VP9,
-        rc_min_quantizer,
-        rc_max_quantizer,
-        speed,
-    };
-    let mut vpx;
-    match Encoder::new(&cfg, (num_cpus::get() / 2) as _) {
-        Ok(x) => vpx = x,
-        Err(err) => bail!("Failed to create encoder: {}", err),
-    }
 
     if *SWITCH.lock().unwrap() {
         log::debug!("Broadcasting display switch");
@@ -232,6 +215,21 @@ fn run(sp: GenericService) -> ResultType<()> {
     let mut try_gdi = 1;
     #[cfg(windows)]
     log::info!("gdi: {}", c.is_gdi());
+
+    let q = get_image_quality();
+    // let mut hardcodec = false;
+    // let mut vpx;
+    let mut henc = get_henc(width, height, fps).unwrap();
+    // if let Ok(h) = get_henc(width, height, fps) {
+    //     henc = h;
+    //     hardcodec = true;
+    // } else {
+    //     match get_vpx(width, height, q) {
+    //         Ok(x) => vpx = x,
+    //         Err(e) => bail!("get vpx {}", e),
+    //     }
+    // }
+
     while sp.ok() {
         if *SWITCH.lock().unwrap() {
             bail!("SWITCH");
@@ -266,7 +264,12 @@ fn run(sp: GenericService) -> ResultType<()> {
             Ok(frame) => {
                 let time = now - start;
                 let ms = (time.as_secs() * 1000 + time.subsec_millis() as u64) as i64;
-                let send_conn_ids = handle_one_frame(&sp, &frame, ms, &mut crc, &mut vpx)?;
+                // let send_conn_ids = if hardcodec {
+                //     handle_one_frame_henc(&sp, &frame, ms, &mut crc, &mut henc)?
+                // } else {
+                //     handle_one_frame(&sp, &frame, ms, &mut crc, &mut vpx)?
+                // };
+                let send_conn_ids = handle_one_frame_henc(&sp, &frame, ms, &mut crc, &mut henc)?;
                 frame_controller.set_send(now, send_conn_ids);
                 #[cfg(windows)]
                 {
@@ -315,6 +318,33 @@ fn run(sp: GenericService) -> ResultType<()> {
     Ok(())
 }
 
+fn get_vpx(width: usize, height: usize, q: i32) -> ResultType<Encoder> {
+    let (bitrate, rc_min_quantizer, rc_max_quantizer, speed) = get_quality(width, height, q);
+    log::info!("bitrate={}, rc_min_quantizer={}", bitrate, rc_min_quantizer);
+    if false {}
+    let cfg = Config {
+        width: width as _,
+        height: height as _,
+        timebase: [1, 1000], // Output timestamp precision
+        bitrate,
+        codec: VideoCodecId::VP9,
+        rc_min_quantizer,
+        rc_max_quantizer,
+        speed,
+    };
+    match Encoder::new(&cfg, (num_cpus::get() / 2) as _) {
+        Ok(vpx) => Ok(vpx),
+        Err(err) => bail!("Failed to create encoder: {}", err),
+    }
+}
+
+fn get_henc(width: usize, height: usize, fps: i64) -> ResultType<HEnc> {
+    match HEnc::new("h264_nvenc".to_owned(), width, height, fps) {
+        Ok(henc) => Ok(henc),
+        Err(err) => bail!("Failed to create henc: {}", err),
+    }
+}
+
 #[inline]
 fn create_msg(vp9s: Vec<VP9>) -> Message {
     let mut msg_out = Message::new();
@@ -328,11 +358,31 @@ fn create_msg(vp9s: Vec<VP9>) -> Message {
 }
 
 #[inline]
+fn create_msg_henc(hframes: Vec<HFrame>) -> Message {
+    let mut msg_out = Message::new();
+    let mut vf = VideoFrame::new();
+    vf.set_hframes(HFrames {
+        frames: hframes.into(),
+        ..Default::default()
+    });
+    msg_out.set_video_frame(vf);
+    msg_out
+}
+
+#[inline]
 fn create_frame(frame: &EncodeFrame) -> VP9 {
     VP9 {
         data: frame.data.to_vec(),
         key: frame.key,
         pts: frame.pts,
+        ..Default::default()
+    }
+}
+
+#[inline]
+fn create_frame_henc(data: Vec<u8>) -> HFrame {
+    HFrame {
+        data,
         ..Default::default()
     }
 }
@@ -387,6 +437,58 @@ fn handle_one_frame(
         // to-do: flush periodically, e.g. 1 second
         if frames.len() > 0 {
             send_conn_ids = sp.send_video_frame(create_msg(frames));
+        }
+    }
+    Ok(send_conn_ids)
+}
+
+#[inline]
+fn handle_one_frame_henc(
+    sp: &GenericService,
+    frame: &[u8],
+    _ms: i64,
+    _crc: &mut (u32, u32),
+    henc: &mut HEnc,
+) -> ResultType<HashSet<i32>> {
+    sp.snapshot(|sps| {
+        // so that new sub and old sub share the same encoder after switch
+        if sps.has_subscribes() {
+            bail!("SWITCH");
+        }
+        Ok(())
+    })?;
+
+    /*
+    // crc runs faster on my i7-4790, around 0.5ms for 720p picture,
+    // but it is super slow on my Linux (in virtualbox) on the same machine, 720ms consumed.
+    // crc do save band width for static scenario (especially for gdi),
+    // Disable it since its uncertainty, who know what will happen on the other machines.
+    let mut hasher = crc32fast::Hasher::new();
+    hasher.update(frame);
+    let checksum = hasher.finalize();
+    if checksum != crc.0 {
+        crc.0 = checksum;
+        crc.1 = 0;
+    } else {
+        crc.1 += 1;
+    }
+    let encode = crc.1 <= 180 && crc.1 % 5 == 0;
+    */
+    let encode = true;
+
+    let mut send_conn_ids: HashSet<i32> = Default::default();
+    if encode {
+        let mut frames = Vec::new();
+        for frame in henc
+            .encode(frame.to_vec())
+            .with_context(|| "Failed to encode")?
+        {
+            frames.push(create_frame_henc(frame));
+        }
+
+        // to-do: flush periodically, e.g. 1 second
+        if frames.len() > 0 {
+            send_conn_ids = sp.send_video_frame(create_msg_henc(frames));
         }
     }
     Ok(send_conn_ids)
