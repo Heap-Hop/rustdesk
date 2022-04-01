@@ -78,15 +78,33 @@ extern "C" {
         width: c_int,
         height: c_int,
     ) -> c_int;
+
+
+    // int NV12ToARGB(const uint8* src_y, int src_stride_y,
+    //     const uint8* src_uv, int src_stride_uv,
+    //     uint8* dst_argb, int dst_stride_argb,
+    //     int width, int height);
+    pub fn NV12ToARGB(
+        src_y: *const u8,
+        src_stride_y: c_int,
+        src_uv: *const u8,
+        src_stride_uv: c_int,
+        dst_rgba: *mut u8,
+        dst_stride_rgba: c_int,
+        width: c_int,
+        height: c_int,
+    ) -> c_int;
 }
 
 // https://github.com/webmproject/libvpx/blob/master/vpx/src/vpx_image.c
 #[inline]
-fn get_vpx_i420_stride(
+pub fn get_vpx_i420_stride(
     width: usize,
     height: usize,
     stride_align: usize,
-) -> (usize, usize, usize, usize, usize, usize) {
+) -> (usize, usize, usize, usize, usize, usize) 
+    //( w, h, stride_y, stride_uv, u_offset, v_offset)
+{
     let mut img = Default::default();
     unsafe {
         vpx_img_wrap(
@@ -108,6 +126,36 @@ fn get_vpx_i420_stride(
     )
 }
 
+#[inline]
+pub fn get_vpx_NV12_stride(
+    width: usize,
+    height: usize,
+    stride_align: usize,
+) -> (usize, usize, usize, usize, usize, usize) 
+    //( w, h, stride_y, stride_uv, u_offset, v_offset)
+{
+    let mut img = Default::default();
+    unsafe {
+        vpx_img_wrap(
+            &mut img,
+            vpx_img_fmt::VPX_IMG_FMT_NV12,
+            width as _,
+            height as _,
+            stride_align as _,
+            0x1 as _,
+        );
+    }
+    (
+        img.w as _,
+        img.h as _,
+        img.stride[0] as _,
+        img.stride[1] as _,
+        img.planes[1] as usize - img.planes[0] as usize,
+        img.planes[2] as usize - img.planes[0] as usize,
+    )
+}
+
+
 pub fn i420_to_rgb(width: usize, height: usize, src: &[u8], dst: &mut Vec<u8>) {
     let (_, _, src_stride_y, src_stride_uv, u, v) =
         get_vpx_i420_stride(width, height, super::STRIDE_ALIGN);
@@ -125,6 +173,50 @@ pub fn i420_to_rgb(width: usize, height: usize, src: &[u8], dst: &mut Vec<u8>) {
             src_stride_uv as _,
             dst.as_mut_ptr(),
             (width * 3) as _,
+            width as _,
+            height as _,
+        );
+    };
+}
+
+pub fn nv12_to_rgba(width: usize, height: usize, src_y: &[u8],src_uv:&[u8], dst: &mut Vec<u8>) {
+    let (_, _, src_stride_y, src_stride_uv, u, v) =
+        get_vpx_NV12_stride(width, height, super::STRIDE_ALIGN);
+    // let src_y = src.as_ptr();
+    // let src_uv = src[u..].as_ptr();
+    dst.resize(width * height * 4, 0);
+    unsafe {
+        super::NV12ToARGB(
+            src_y.as_ptr(),
+            src_stride_y as _,
+            src_uv.as_ptr(),
+            src_stride_uv as _,
+            dst.as_mut_ptr(),
+            (width * 4) as _,
+            width as _,
+            height as _,
+        );
+    };
+}
+
+
+pub fn i420_to_rgba(width: usize, height: usize, src: &[u8], dst: &mut Vec<u8>) {
+    let (_, _, src_stride_y, src_stride_uv, u, v) =
+        get_vpx_i420_stride(width, height, super::STRIDE_ALIGN);
+    let src_y = src.as_ptr();
+    let src_u = src[u..].as_ptr();
+    let src_v = src[v..].as_ptr();
+    dst.resize(width * height * 4, 0);
+    unsafe {
+        super::I420ToARGB(
+            src_y,
+            src_stride_y as _,
+            src_u,
+            src_stride_uv as _,
+            src_v,
+            src_stride_uv as _,
+            dst.as_mut_ptr(),
+            (width * 4) as _, // TODO  3 / 4 ?
             width as _,
             height as _,
         );
