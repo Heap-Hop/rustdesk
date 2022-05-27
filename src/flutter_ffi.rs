@@ -47,6 +47,24 @@ pub fn start_rgba_stream(s: StreamSink<ZeroCopyBuffer<Vec<u8>>>) -> ResultType<(
     Ok(())
 }
 
+pub enum Event {
+    A(i32),
+    B(String),
+    C(Vec<u8>),
+}
+
+pub fn test(e: Event) {}
+
+// struct Msg {
+//     id: String,
+//     payload: Event,
+// }
+
+// pub fn start_event_stream_enum(s: StreamSink<Msg>) -> ResultType<()> {
+//     // let _ = flutter::RGBA_STREAM.write().unwrap().insert(s);
+//     Ok(())
+// }
+
 #[no_mangle]
 unsafe extern "C" fn get_by_name(name: *const c_char, arg: *const c_char) -> *const c_char {
     let mut res = "".to_owned();
