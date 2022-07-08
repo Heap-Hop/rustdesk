@@ -238,7 +238,7 @@ pub struct HwDecoders {
 
 impl HwDecoder {
     /// See HwEncoder::best
-    fn best(force_reset: bool, write: bool) -> (CodecInfos, bool) {
+    pub fn best(force_reset: bool, write: bool) -> (CodecInfos, bool) {
         let config = get_config(CFG_KEY_DECODER);
         if !force_reset && config.is_ok() {
             (config.unwrap(), false)
@@ -311,8 +311,8 @@ impl HwDecoderImage<'_> {
                 frame.linesize[0] as _,
                 frame.linesize[1] as _,
                 bgra,
-                i420,
-                HW_STRIDE_ALIGN,
+                // i420,
+                // HW_STRIDE_ALIGN,
             ),
             AVPixelFormat::AV_PIX_FMT_YUV420P => {
                 hw::hw_i420_to_bgra(

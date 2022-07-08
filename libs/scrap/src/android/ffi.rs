@@ -165,6 +165,7 @@ pub fn call_main_service_mouse_input(mask: i32, x: i32, y: i32) -> JniResult<()>
     }
 }
 
+// TODO jvm ref leak on Android 7
 pub fn call_main_service_get_by_name(name: &str) -> JniResult<String> {
     if let (Some(jvm), Some(ctx)) = (
         JVM.read().unwrap().as_ref(),

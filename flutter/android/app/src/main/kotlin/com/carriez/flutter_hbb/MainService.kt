@@ -35,11 +35,11 @@ import androidx.annotation.RequiresApi
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
-import java.util.concurrent.Executors
-import kotlin.concurrent.thread
 import org.json.JSONException
 import org.json.JSONObject
 import java.nio.ByteBuffer
+import java.util.concurrent.Executors
+import kotlin.concurrent.thread
 import kotlin.math.max
 import kotlin.math.min
 
@@ -98,7 +98,44 @@ class MainService : Service() {
                     put("scale",SCREEN_INFO.scale)
                 }.toString()
             }
+            // 启动时先检测 或者收到此命令时也检测
+            "hw_codec" -> {
+                val codecInfos = MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos
+                val jsonResult = JSONObject()
+                // find h264 hevc encoder decoder
+                for (info in codecInfos) {
+                    val types = info.supportedTypes
+                    if(isHardwareCodec(info)){
+                        if (info.isEncoder) {
+                            // h264 encoder
+                            if(types.any { it.equals(MediaFormat.MIMETYPE_VIDEO_AVC, ignoreCase = true) }) {
+                                jsonResult.put("H264",JSONObject().apply {
+                                    put("name","MediaFormat.MIMETYPE_VIDEO_AVC")
+                                    put("format","H264")
+                                    put("vendor","OTHER")
+                                    put("score",94)
+                                    put("hwdevice","AV_HWDEVICE_TYPE_MEDIACODEC")
+                                })
+                            }
+                        } else {
+
+                        }
+
+
+                    }
+                    info.supportedTypes
+                }
+                ""
+            }
             else -> ""
+        }
+    }
+
+    private fun isHardwareCodec(info :MediaCodecInfo):Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            info.isSoftwareOnly
+        } else {
+            info.name.startsWith("OMX.") && !info.name.startsWith("OMX.google.")
         }
     }
 

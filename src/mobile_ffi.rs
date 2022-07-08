@@ -1,7 +1,7 @@
 use crate::client::file_trait::FileManager;
+use crate::common::make_fd_to_json;
 use crate::mobile::connection_manager::{self, get_clients_length, get_clients_state};
 use crate::mobile::{self, Session};
-use crate::common::{make_fd_to_json};
 use flutter_rust_bridge::{StreamSink, ZeroCopyBuffer};
 use hbb_common::ResultType;
 use hbb_common::{
@@ -180,6 +180,11 @@ unsafe extern "C" fn set_by_name(name: *const c_char, value: *const c_char) {
         let name: &CStr = CStr::from_ptr(name);
         if let Ok(name) = name.to_str() {
             match name {
+                "check_codec" => {
+                    let best_decoder = scrap::hwcodec::HwDecoder::best(true, false);
+                    let best_encoder = scrap::hwcodec::HwEncoder::best(true, false);
+                    log::debug!("best:{:?},{:?}", best_decoder, best_encoder);
+                }
                 "init" => {
                     initialize(value);
                 }

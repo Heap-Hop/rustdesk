@@ -19,6 +19,7 @@ libc = "0.2"
 num_cpus = "1.13"
 lazy_static = "1.4"
 hbb_common = { path = "../hbb_common" }
+hwcodec = { path = "/home/csf/RustDeskWorkSpace/hwcodec", optional = true }
 
 [dependencies.winapi]
 version = "0.3"
@@ -50,5 +51,5 @@ gstreamer = { version = "0.16", optional = true }
 gstreamer-app = { version = "0.16", features = ["v1_10"], optional = true }
 gstreamer-video = { version = "0.16", optional = true }
 
-[target.'cfg(target_os = "windows")'.dependencies]
-hwcodec = { git = "https://github.com/21pages/hwcodec", optional = true }
+# [target.'cfg(target_os = "windows")'.dependencies]
+# hwcodec = { git = "https://github.com/21pages/hwcodec", optional = true }

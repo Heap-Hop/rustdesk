@@ -56,6 +56,11 @@ class _ConnectionPageState extends State<ConnectionPage> {
             getSearchBarUI(),
             Container(height: 12),
             getPeers(),
+            ElevatedButton(
+                onPressed: () {
+                  FFI.setByName("check_codec");
+                },
+                child: Text("Debug"))
           ]),
     );
   }

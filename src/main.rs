@@ -117,10 +117,6 @@ fn main() {
                     args.len() > 1,
                 ));
                 return;
-            } else if args[0] == "--check-hwcodec-config" {
-                #[cfg(feature = "hwcodec")]
-                ipc::check_hwcodec_config();
-                return;
             }
         }
         if args[0] == "--remove" {
@@ -163,6 +159,10 @@ fn main() {
             if args.len() == 2 {
                 ipc::set_password(args[1].to_owned()).unwrap();
             }
+            return;
+        } else if args[0] == "--check-hwcodec-config" {
+            #[cfg(feature = "hwcodec")]
+            ipc::check_hwcodec_config();
             return;
         }
     }
