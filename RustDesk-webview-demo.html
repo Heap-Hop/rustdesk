@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html>
+<meta name="viewport"
+    content="width=device-width,initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+
+<head>
+    <title>RustDesk Demo</title>
+</head>
+
+<body>
+    <h1>WebView Open RustDesk Demo</h1>
+    <h2 id="webview-status">Not RustDesk WebView</h2>
+    <br>
+    <br>
+    <button onclick="connectRustDesk()">Connect</button>
+    <br>
+    <br>
+    <p>onRustDeskMsg:</p>
+    <p id="rustdesk-msg"></p>
+</body>
+<script>
+    const id = "test";
+    const password = "passwd";
+    var isAvailable = false;
+
+    // 判断是否在RustDesk WebView环境
+    if (RustDeskChannel != null) {
+        isAvailable = true;
+        document.getElementById("webview-status").innerText = "RustDesk WebView is available!";
+    }
+
+    /* 
+    WebView call RustDesk 消息传递 json 字符串
+        type        消息类型 当前仅实现 [connect] 
+        id          远程桌面的ID
+        password    远程桌面的密码
+    */
+    function connectRustDesk() {
+        if (!isAvailable) {
+            return;
+        }
+        let msg = JSON.stringify({
+            "type": "connect",
+            "id": id,
+            "password": password
+        });
+        RustDeskChannel.postMessage(msg);
+    }
+
+    // RustDesk 消息事件回调
+    RustDeskChannel.onMessage = function (msg) {
+        document.getElementById("rustdesk-msg").innerText = msg;
+    }
+
+    // RustDesk成功建立 事件回调
+    RustDeskChannel.onEstablished = function () { }
+
+    // RustDesk正常结束连接 事件回调
+    RustDeskChannel.onDisconnected = function () { }
+
+    // RustDesk 错误回调
+    RustDeskChannel.onError = function (error) { }
+</script>
+
+</html>

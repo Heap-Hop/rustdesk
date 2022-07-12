@@ -761,6 +761,7 @@ pub struct LoginConfigHandler {
     pub is_file_transfer: bool,
     is_port_forward: bool,
     hash: Hash,
+    pub password_preset: String,
     password: Vec<u8>, // remember password for reconnect
     pub remember: bool,
     config: PeerConfig,
@@ -784,10 +785,17 @@ pub fn load_config(id: &str) -> PeerConfig {
 }
 
 impl LoginConfigHandler {
-    pub fn initialize(&mut self, id: String, is_file_transfer: bool, is_port_forward: bool) {
+    pub fn initialize(
+        &mut self,
+        id: String,
+        is_file_transfer: bool,
+        is_port_forward: bool,
+        password_preset: String,
+    ) {
         self.id = id;
         self.is_file_transfer = is_file_transfer;
         self.is_port_forward = is_port_forward;
+        self.password_preset = password_preset;
         let config = self.load_config();
         self.remember = !config.password.is_empty();
         self.config = config;
@@ -1303,10 +1311,24 @@ pub async fn handle_hash(
     interface: &impl Interface,
     peer: &mut Stream,
 ) {
-    let mut password = lc.read().unwrap().password.clone();
-    if password.is_empty() {
-        password = lc.read().unwrap().config.password.clone();
+    let mut password;
+    {
+        let mut lc_lock = lc.read().unwrap();
+        password = lc_lock.password.clone();
+        if password.is_empty() {
+            if !lc_lock.password_preset.is_empty() {
+                let mut hasher = Sha256::new();
+                hasher.update(&lc_lock.password_preset);
+                hasher.update(&hash.salt);
+                let res = hasher.finalize();
+                password = res[..].into();
+            }
+        }
+        if password.is_empty() {
+            password = lc_lock.config.password.clone();
+        }
     }
+
     if password.is_empty() {
         // login without password, the remote side can click accept
         send_login(lc.clone(), Vec::new(), peer).await;

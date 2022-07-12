@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_hbb/pages/chat_page.dart';
 import 'package:flutter_hbb/pages/remote_page.dart';
@@ -50,7 +52,7 @@ class _HomePageState extends State<HomePage> {
         },
         child: WebViewExample()
 
-        // Scaffold(
+        //     Scaffold(
         //   backgroundColor: MyTheme.grayBg,
         //   appBar: AppBar(
         //     centerTitle: true,
@@ -100,37 +102,60 @@ class WebViewExampleState extends State<WebViewExample> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text("WebView Open RustDesk Demo")),
+      appBar: AppBar(
+        leading: IconButton(
+            onPressed: () async {
+              if (_controller == null) return;
+              if (await _controller!.canGoBack()) {
+                _controller!.goBack();
+              }
+            },
+            icon: Icon(Icons.arrow_back)),
+        title: Text("WebView RustDesk Demo"),
+        actions: [
+          IconButton(
+              onPressed: () async {
+                await _controller?.clearCache();
+                await _controller?.reload();
+              },
+              icon: Icon(Icons.refresh))
+        ],
+      ),
       body: WebView(
         onWebViewCreated: (c) => _controller = c,
         javascriptMode: JavascriptMode.unrestricted,
         javascriptChannels: [
           JavascriptChannel(
-              name: 'Toast',
+              name: 'RustDeskChannel',
               onMessageReceived: (message) {
-                debugPrint("onMessageReceived : $message");
-                showToast(message.message);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (BuildContext context) =>
-                        RemotePage(id: "1022661383"),
-                  ),
-                );
+                debugPrint("onMessageReceived : ${message.message}");
+                try {
+                  final msg =
+                      json.decode(message.message) as Map<String, dynamic>;
+                  final id = msg["id"] as String?;
+                  final passwordPreset = msg["password"] as String?;
+                  if (id == null) return;
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (BuildContext context) => RemotePage(
+                          id: id, passwordPreset: passwordPreset ?? ""),
+                    ),
+                  );
+                } catch (e) {
+                  debugPrint('onMessageReceived json decode error: $e');
+                }
               })
         ].toSet(),
-        initialUrl: 'http://114.242.9.52:9099/padb/',
-        // initialUrl: 'https://www.bilibili.com/',
+        initialUrl: 'http://192.168.2.29:3030',
+        // initialUrl: 'http://114.242.9.52:9099/padb/',
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: () async {
-          if (_controller == null) return;
-          if (await _controller!.canGoBack()) {
-            _controller!.goBack();
-          }
+          _controller?.runJavascript('RustDeskChannel.onMessage("Test")');
           debugPrint("floatingActionButton tap");
         },
-        child: Text("Back"),
+        child: Text("Call"),
       ),
     );
   }

@@ -1,12 +1,16 @@
 use crate::client::*;
-use crate::common::{make_fd_to_json};
+use crate::common::make_fd_to_json;
 use flutter_rust_bridge::{StreamSink, ZeroCopyBuffer};
 use hbb_common::{
     allow_err,
     compress::decompress,
     config::{Config, LocalConfig},
-    fs, log,
-    fs::{can_enable_overwrite_detection, new_send_confirm, DigestCheckResult, get_string, transform_windows_path},
+    fs,
+    fs::{
+        can_enable_overwrite_detection, get_string, new_send_confirm, transform_windows_path,
+        DigestCheckResult,
+    },
+    log,
     message_proto::*,
     protobuf::Message as _,
     rendezvous_proto::ConnType,
@@ -37,7 +41,7 @@ pub struct Session {
 }
 
 impl Session {
-    pub fn start(id: &str, is_file_transfer: bool) {
+    pub fn start(id: &str, password_preset: &str, is_file_transfer: bool) {
         LocalConfig::set_remote_id(id);
         Self::close();
         let mut session = Session::default();
@@ -45,7 +49,7 @@ impl Session {
             .lc
             .write()
             .unwrap()
-            .initialize(id.to_owned(), false, false);
+            .initialize(id.to_owned(), false, false, password_preset.into());
         session.id = id.to_owned();
         *SESSION.write().unwrap() = Some(session.clone());
         std::thread::spawn(move || {
@@ -438,7 +442,11 @@ impl Interface for Session {
 
         if lc.is_file_transfer {
             if pi.username.is_empty() {
-                self.msgbox("error", "Error", "No active console user logged on, please connect and logon first.");
+                self.msgbox(
+                    "error",
+                    "Error",
+                    "No active console user logged on, please connect and logon first.",
+                );
                 return;
             }
         } else {

@@ -760,12 +760,16 @@ class FFI {
     return [];
   }
 
-  static void connect(String id, {bool isFileTransfer = false}) {
+  static void connect(String id,
+      {String passwordPreset = "", bool isFileTransfer = false}) {
+    final msg = Map()
+      ..["id"] = id
+      ..["password"] = passwordPreset;
     if (isFileTransfer) {
-      setByName('connect_file_transfer', id);
+      setByName('connect_file_transfer', json.encode(msg));
     } else {
       FFI.chatModel.resetClientMode();
-      setByName('connect', id);
+      setByName('connect', json.encode(msg));
     }
     FFI.id = id;
   }

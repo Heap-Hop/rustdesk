@@ -17,9 +17,11 @@ import '../widgets/overlay.dart';
 final initText = '\1' * 1024;
 
 class RemotePage extends StatefulWidget {
-  RemotePage({Key? key, required this.id}) : super(key: key);
+  RemotePage({Key? key, required this.id, this.passwordPreset = ""})
+      : super(key: key);
 
   final String id;
+  final String passwordPreset;
 
   @override
   _RemotePageState createState() => _RemotePageState();
@@ -45,7 +47,7 @@ class _RemotePageState extends State<RemotePage> {
   @override
   void initState() {
     super.initState();
-    FFI.connect(widget.id);
+    FFI.connect(widget.id, passwordPreset: widget.passwordPreset);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: []);
       showLoading(translate('Connecting...'));

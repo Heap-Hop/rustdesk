@@ -1,7 +1,7 @@
 use crate::client::file_trait::FileManager;
+use crate::common::make_fd_to_json;
 use crate::mobile::connection_manager::{self, get_clients_length, get_clients_state};
 use crate::mobile::{self, Session};
-use crate::common::{make_fd_to_json};
 use flutter_rust_bridge::{StreamSink, ZeroCopyBuffer};
 use hbb_common::ResultType;
 use hbb_common::{
@@ -190,10 +190,14 @@ unsafe extern "C" fn set_by_name(name: *const c_char, value: *const c_char) {
                     *crate::common::MOBILE_INFO2.lock().unwrap() = value.to_owned();
                 }
                 "connect" => {
-                    Session::start(value, false);
+                    if let Ok(m) = serde_json::from_str::<HashMap<String, String>>(value) {
+                        if let (Some(id), Some(password)) = (m.get("id"), m.get("password")) {
+                            Session::start(id, password, false);
+                        }
+                    }
                 }
                 "connect_file_transfer" => {
-                    Session::start(value, true);
+                    Session::start(value, "", true);
                 }
                 "login" => {
                     if let Ok(m) = serde_json::from_str::<HashMap<String, String>>(value) {
