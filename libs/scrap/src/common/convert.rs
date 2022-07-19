@@ -381,6 +381,8 @@ pub mod hw {
         src_stride_y: usize,
         src_stride_uv: usize,
         dst: &mut Vec<u8>,
+        _i420: &mut Vec<u8>,
+        _align: usize,
     ) -> ResultType<()> {
         dst.resize(width * height * 4, 0);
         unsafe {

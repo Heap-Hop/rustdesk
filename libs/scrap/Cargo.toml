@@ -49,6 +49,7 @@ tracing = { version = "0.1", optional = true }
 gstreamer = { version = "0.16", optional = true }
 gstreamer-app = { version = "0.16", features = ["v1_10"], optional = true }
 gstreamer-video = { version = "0.16", optional = true }
+hwcodec = { git = "https://github.com/21pages/hwcodec", optional = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 hwcodec = { git = "https://github.com/21pages/hwcodec", optional = true }
