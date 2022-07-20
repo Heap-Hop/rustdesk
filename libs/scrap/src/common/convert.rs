@@ -117,7 +117,7 @@ extern "C" {
 
 // https://github.com/webmproject/libvpx/blob/master/vpx/src/vpx_image.c
 #[inline]
-fn get_vpx_i420_stride(
+pub fn get_vpx_i420_stride(
     width: usize,
     height: usize,
     stride_align: usize,
@@ -192,7 +192,9 @@ pub fn bgra_to_i420(width: usize, height: usize, src: &[u8], dst: &mut Vec<u8>) 
 pub fn rgba_to_i420(width: usize, height: usize, src: &[u8], dst: &mut Vec<u8>) {
     let (_, h, dst_stride_y, dst_stride_uv, u, v) =
         get_vpx_i420_stride(width, height, super::STRIDE_ALIGN);
-    dst.resize(h * dst_stride_y * 2, 0); // waste some memory to ensure memory safety
+    let length = height * (dst_stride_y + dst_stride_uv / 2 +
+        dst_stride_uv / 2);
+    dst.resize(length, 0); // waste some memory to ensure memory safety
     let dst_y = dst.as_mut_ptr();
     let dst_u = dst[u..].as_mut_ptr();
     let dst_v = dst[v..].as_mut_ptr();
@@ -381,6 +383,8 @@ pub mod hw {
         src_stride_y: usize,
         src_stride_uv: usize,
         dst: &mut Vec<u8>,
+        i420: &mut Vec<u8>,
+        align: usize,
     ) -> ResultType<()> {
         dst.resize(width * height * 4, 0);
         unsafe {

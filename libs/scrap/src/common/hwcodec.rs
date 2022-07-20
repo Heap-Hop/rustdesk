@@ -1,6 +1,6 @@
 use crate::{
     codec::{EncoderApi, EncoderCfg},
-    hw, HW_STRIDE_ALIGN,
+    hw, HW_STRIDE_ALIGN, get_vpx_i420_stride, rgba_to_i420,
 };
 use hbb_common::{
     anyhow::{anyhow, Context},
@@ -46,12 +46,18 @@ impl EncoderApi for HwEncoder {
     {
         match cfg {
             EncoderCfg::HW(config) => {
+                let (_, _, src_stride_y, src_stride_uv, u, v) = 
+                    get_vpx_i420_stride(config.width, config.height, super::STRIDE_ALIGN); // TEST
+
                 let ctx = EncodeContext {
                     name: config.codec_name.clone(),
                     width: config.width as _,
                     height: config.height as _,
                     pixfmt: DEFAULT_PIXFMT,
-                    align: HW_STRIDE_ALIGN as _,
+                    // align: HW_STRIDE_ALIGN as _,
+                    stride_y: src_stride_y as _,
+                    offset0: u as _,
+                    offset1: v as _,
                     bitrate: config.bitrate * 1000,
                     timebase: DEFAULT_TIME_BASE,
                     gop: DEFAULT_GOP,
@@ -89,7 +95,16 @@ impl EncoderApi for HwEncoder {
         let mut msg_out = Message::new();
         let mut vf = VideoFrame::new();
         let mut frames = Vec::new();
-        for frame in self.encode(frame).with_context(|| "Failed to encode")? {
+        
+        rgba_to_i420(self.encoder.ctx.width as _, self.encoder.ctx.height as _, frame, &mut self.yuv);
+        // hw::hw_bgra_to_nv12(self.encoder.ctx.width as _,
+        //             self.encoder.ctx.height as _,
+        //             &self.encoder.linesize,
+        //             &self.encoder.offset,
+        //             self.encoder.ctx.height * (&self.encoder.linesize[0] + &self.encoder.linesize[1] / 2),
+        //             frame,
+        //             &mut self.yuv,);
+        for frame in self.encode().with_context(|| "Failed to encode")? {
             frames.push(EncodedVideoFrame {
                 data: frame.data,
                 pts: frame.pts as _,
@@ -137,12 +152,19 @@ impl HwEncoder {
         if !force_reset && config.is_ok() {
             (config.unwrap(), false)
         } else {
+            let width = 1920;
+            let height = 1080;
+            let (_, _, src_stride_y, src_stride_uv, u, v) = 
+                    get_vpx_i420_stride(width, height, super::STRIDE_ALIGN); // TEST
             let ctx = EncodeContext {
                 name: String::from(""),
-                width: 1920,
-                height: 1080,
+                width: width as _,
+                height: height as _,
                 pixfmt: DEFAULT_PIXFMT,
-                align: HW_STRIDE_ALIGN as _,
+                // align: HW_STRIDE_ALIGN as _,
+                stride_y: src_stride_y as _,
+                offset0: u as _,
+                offset1: v as _,
                 bitrate: 0,
                 timebase: DEFAULT_TIME_BASE,
                 gop: DEFAULT_GOP,
@@ -163,27 +185,27 @@ impl HwEncoder {
         HW_ENCODER_NAME.clone()
     }
 
-    pub fn encode(&mut self, bgra: &[u8]) -> ResultType<Vec<EncodeFrame>> {
-        match self.pixfmt {
-            AVPixelFormat::AV_PIX_FMT_YUV420P => hw::hw_bgra_to_i420(
-                self.encoder.ctx.width as _,
-                self.encoder.ctx.height as _,
-                &self.encoder.linesize,
-                &self.encoder.offset,
-                self.encoder.length,
-                bgra,
-                &mut self.yuv,
-            ),
-            AVPixelFormat::AV_PIX_FMT_NV12 => hw::hw_bgra_to_nv12(
-                self.encoder.ctx.width as _,
-                self.encoder.ctx.height as _,
-                &self.encoder.linesize,
-                &self.encoder.offset,
-                self.encoder.length,
-                bgra,
-                &mut self.yuv,
-            ),
-        }
+    pub fn encode(&mut self) -> ResultType<Vec<EncodeFrame>> {
+        // match self.pixfmt {
+        //     AVPixelFormat::AV_PIX_FMT_YUV420P => hw::hw_bgra_to_i420(
+        //         self.encoder.ctx.width as _,
+        //         self.encoder.ctx.height as _,
+        //         &self.encoder.linesize,
+        //         &self.encoder.offset,
+        //         self.encoder.length,
+        //         bgra,
+        //         &mut self.yuv,
+        //     ),
+        //     AVPixelFormat::AV_PIX_FMT_NV12 => hw::hw_bgra_to_nv12(
+        //         self.encoder.ctx.width as _,
+        //         self.encoder.ctx.height as _,
+        //         &self.encoder.linesize,
+        //         &self.encoder.offset,
+        //         self.encoder.length,
+        //         bgra,
+        //         &mut self.yuv,
+        //     ),
+        // }
 
         match self.encoder.encode(&self.yuv) {
             Ok(v) => {
