@@ -1,13 +1,13 @@
 use crate::{
     codec::{EncoderApi, EncoderCfg},
-    hw, HW_STRIDE_ALIGN,
+    hw,
 };
 use hbb_common::{
     anyhow::{anyhow, Context},
     config::HwCodecConfig,
     lazy_static, log,
     message_proto::{EncodedVideoFrame, EncodedVideoFrames, Message, VideoFrame},
-    ResultType,
+    ResultType, bail,
 };
 use hwcodec::{
     decode::{DecodeContext, DecodeFrame, Decoder},
@@ -15,7 +15,7 @@ use hwcodec::{
     ffmpeg::{CodecInfo, CodecInfos, DataFormat},
     AVPixelFormat,
     Quality::{self, *},
-    RateContorl::{self, *},
+    RateContorl::{self, *}, AV_NUM_DATA_POINTERS,
 };
 use std::sync::{Arc, Mutex};
 
@@ -34,86 +34,100 @@ const DEFAULT_RC: RateContorl = RC_DEFAULT;
 
 pub struct HwEncoder {
     encoder: Encoder,
-    yuv: Vec<u8>,
-    pub format: DataFormat,
+    // yuv: Vec<u8>,
+    // pub format: DataFormat,
     pub pixfmt: AVPixelFormat,
 }
 
 impl EncoderApi for HwEncoder {
-    fn new(cfg: EncoderCfg) -> ResultType<Self>
+    fn new(cfg: &EncoderCfg) -> ResultType<Self>
     where
         Self: Sized,
     {
-        match cfg {
-            EncoderCfg::HW(config) => {
-                let ctx = EncodeContext {
-                    name: config.codec_name.clone(),
-                    width: config.width as _,
-                    height: config.height as _,
-                    pixfmt: DEFAULT_PIXFMT,
-                    align: HW_STRIDE_ALIGN as _,
-                    bitrate: config.bitrate * 1000,
-                    timebase: DEFAULT_TIME_BASE,
-                    gop: DEFAULT_GOP,
-                    quality: DEFAULT_HW_QUALITY,
-                    rc: DEFAULT_RC,
-                };
-                let format = match Encoder::format_from_name(config.codec_name.clone()) {
-                    Ok(format) => format,
-                    Err(_) => {
-                        return Err(anyhow!(format!(
-                            "failed to get format from name:{}",
-                            config.codec_name
-                        )))
-                    }
-                };
-                match Encoder::new(ctx.clone()) {
-                    Ok(encoder) => Ok(HwEncoder {
-                        encoder,
-                        yuv: vec![],
-                        format,
-                        pixfmt: ctx.pixfmt,
-                    }),
-                    Err(_) => Err(anyhow!(format!("Failed to create encoder"))),
-                }
+        if !cfg.use_hwcodec {
+            bail!("Failed to create encoder, cfg.use_hwcodec is false");
+        }
+        let ctx = EncodeContext {
+            name: cfg.codec_name.clone(),
+            width: cfg.width as _,
+            height: cfg.height as _,
+            pixfmt: DEFAULT_PIXFMT,
+            // stride: cfg.st,
+            // offset: [usize; 2],
+            bitrate: (cfg.bitrate * 1000) as _,
+            timebase: DEFAULT_TIME_BASE,
+            gop: DEFAULT_GOP,
+            quality: DEFAULT_HW_QUALITY,
+            rc: DEFAULT_RC,
+        };
+        let format = match Encoder::format_from_name(cfg.codec_name.clone()) {
+            Ok(format) => format,
+            Err(_) => {
+                return Err(anyhow!(format!(
+                    "failed to get format from name:{}",
+                    cfg.codec_name
+                )))
             }
-            _ => Err(anyhow!("encoder type mismatch")),
+        };
+        match Encoder::new(ctx.clone()) {
+            Ok(encoder) => Ok(HwEncoder {
+                encoder,
+                // yuv: vec![],
+                // format,
+                pixfmt: ctx.pixfmt,
+            }),
+            Err(_) => Err(anyhow!(format!("Failed to create encoder"))),
         }
     }
 
-    fn encode_to_message(
+    fn encode(
         &mut self,
-        frame: &[u8],
-        _ms: i64,
-    ) -> ResultType<hbb_common::message_proto::Message> {
-        let mut msg_out = Message::new();
-        let mut vf = VideoFrame::new();
+        yuv: &[u8],
+        yuv_cfg: &crate::YuvMeta,
+        pts: i64,
+    ) -> ResultType<Vec<EncodedVideoFrame>> {
+        let mut linesize = Vec::<i32>::new();
+        linesize.resize(AV_NUM_DATA_POINTERS as _, 0);
+        linesize[0] = yuv_cfg.stride[0] as _;
+        linesize[1] = yuv_cfg.stride[1] as _ ;
+        linesize[2] = yuv_cfg.stride[1] as _;
+        let mut offset = Vec::<i32>::new();
+        offset.resize(AV_NUM_DATA_POINTERS as _, 0);
+        offset[0] = yuv_cfg.offset[0] as _;
+        offset[1] = yuv_cfg.offset[1] as _;
+
+        let mut encoder_frames = Vec::<EncodeFrame>::new();
+        if let Ok(frames) = self.encoder.encode(yuv, linesize, offset) {
+            encoder_frames.append(frames);
+        } else {
+            bail!("Failed to encode");
+        }
+
+        // let mut msg_out = Message::new();
+        // let mut vf = VideoFrame::new();
         let mut frames = Vec::new();
-        for frame in self.encode(frame).with_context(|| "Failed to encode")? {
+        for frame in encoder_frames {
             frames.push(EncodedVideoFrame {
                 data: frame.data,
                 pts: frame.pts as _,
                 ..Default::default()
             });
         }
-        if frames.len() > 0 {
-            let frames = EncodedVideoFrames {
-                frames: frames.into(),
-                ..Default::default()
-            };
-            match self.format {
-                DataFormat::H264 => vf.set_h264s(frames),
-                DataFormat::H265 => vf.set_h265s(frames),
-            }
-            msg_out.set_video_frame(vf);
-            Ok(msg_out)
-        } else {
-            Err(anyhow!("no valid frame"))
-        }
-    }
-
-    fn use_yuv(&self) -> bool {
-        false
+        Ok(frames)
+        // if frames.len() > 0 {
+        //     let frames = EncodedVideoFrames {
+        //         frames: frames.into(),
+        //         ..Default::default()
+        //     };
+        //     match self.format {
+        //         DataFormat::H264 => vf.set_h264s(frames),
+        //         DataFormat::H265 => vf.set_h265s(frames),
+        //     }
+        //     msg_out.set_video_frame(vf);
+        //     Ok(msg_out)
+        // } else {
+        //     Err(anyhow!("no valid frame"))
+        // }
     }
 
     fn set_bitrate(&mut self, bitrate: u32) -> ResultType<()> {
@@ -142,7 +156,6 @@ impl HwEncoder {
                 width: 1920,
                 height: 1080,
                 pixfmt: DEFAULT_PIXFMT,
-                align: HW_STRIDE_ALIGN as _,
                 bitrate: 0,
                 timebase: DEFAULT_TIME_BASE,
                 gop: DEFAULT_GOP,
@@ -163,37 +176,37 @@ impl HwEncoder {
         HW_ENCODER_NAME.clone()
     }
 
-    pub fn encode(&mut self, bgra: &[u8]) -> ResultType<Vec<EncodeFrame>> {
-        match self.pixfmt {
-            AVPixelFormat::AV_PIX_FMT_YUV420P => hw::hw_bgra_to_i420(
-                self.encoder.ctx.width as _,
-                self.encoder.ctx.height as _,
-                &self.encoder.linesize,
-                &self.encoder.offset,
-                self.encoder.length,
-                bgra,
-                &mut self.yuv,
-            ),
-            AVPixelFormat::AV_PIX_FMT_NV12 => hw::hw_bgra_to_nv12(
-                self.encoder.ctx.width as _,
-                self.encoder.ctx.height as _,
-                &self.encoder.linesize,
-                &self.encoder.offset,
-                self.encoder.length,
-                bgra,
-                &mut self.yuv,
-            ),
-        }
+    // pub fn encode(&mut self, yuv: &[u8]) -> ResultType<Vec<EncodeFrame>> {
+    //     match self.pixfmt {
+    //         AVPixelFormat::AV_PIX_FMT_YUV420P => hw::hw_bgra_to_i420(
+    //             self.encoder.ctx.width as _,
+    //             self.encoder.ctx.height as _,
+    //             &self.encoder.linesize,
+    //             &self.encoder.offset,
+    //             self.encoder.length,
+    //             bgra,
+    //             &mut self.yuv,
+    //         ),
+    //         AVPixelFormat::AV_PIX_FMT_NV12 => hw::hw_bgra_to_nv12(
+    //             self.encoder.ctx.width as _,
+    //             self.encoder.ctx.height as _,
+    //             &self.encoder.linesize,
+    //             &self.encoder.offset,
+    //             self.encoder.length,
+    //             bgra,
+    //             &mut self.yuv,
+    //         ),
+    //     }
 
-        match self.encoder.encode(&self.yuv) {
-            Ok(v) => {
-                let mut data = Vec::<EncodeFrame>::new();
-                data.append(v);
-                Ok(data)
-            }
-            Err(_) => Ok(Vec::<EncodeFrame>::new()),
-        }
-    }
+    //     match self.encoder.encode(&self.yuv) {
+    //         Ok(v) => {
+    //             let mut data = Vec::<EncodeFrame>::new();
+    //             data.append(v);
+    //             Ok(data)
+    //         }
+    //         Err(_) => Ok(Vec::<EncodeFrame>::new()),
+    //     }
+    // }
 }
 
 pub struct HwDecoder {
@@ -282,7 +295,7 @@ impl HwDecoderImage<'_> {
                 frame.linesize[1] as _,
                 bgra,
                 i420,
-                HW_STRIDE_ALIGN,
+                0,
             ),
             AVPixelFormat::AV_PIX_FMT_YUV420P => {
                 hw::hw_i420_to_bgra(

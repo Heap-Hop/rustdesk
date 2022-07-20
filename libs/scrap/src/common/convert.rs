@@ -139,7 +139,7 @@ pub fn get_yuv_stride(
             );
             let offset_u = img.planes[1] as usize - img.planes[0] as usize;
             let offset_v = img.planes[2] as usize - img.planes[0] as usize;
-            let length = height * (img.stride[0] + img.stride[1] / 2) as usize;
+            let length = height * (img.stride[0] + img.stride[1] / 2 + img.stride[1] / 2) as usize;
             (
                 [img.stride[0] as _, img.stride[1] as _],
                 [offset_u, offset_v],

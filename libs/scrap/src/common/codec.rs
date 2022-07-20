@@ -7,7 +7,7 @@ use std::{
 
 #[cfg(feature = "hwcodec")]
 use crate::hwcodec::*;
-use crate::{get_yuv_stride, rgba_to_i420, vpxcodec::*, STRIDE_ALIGN, bgra_to_i420};
+use crate::{bgra_to_i420, get_yuv_stride, rgba_to_i420, vpxcodec::*, STRIDE_ALIGN};
 
 use hbb_common::{
     anyhow::anyhow,
@@ -30,24 +30,30 @@ const SCORE_VPX: i32 = 90;
 pub enum RawFrame<'a> {
     RGBA(&'a [u8]),
     BGRA(&'a [u8]),
-    YUV(&'a [u8] , ), // TODO frame + meta
+    YUV(&'a [u8]), // TODO frame + meta
 }
 
 impl<'a> RawFrame<'a> {
-    fn convert_into_yuv(&self, width: usize, height: usize ,yuv_buf: &mut Vec<u8>, yuv_meta: &YuvMeta) {
-        match (self,&yuv_meta.format) {
-            (RawFrame::RGBA(rgba),YuvFormat::I420) =>{
-                rgba_to_i420(width,height,rgba, yuv_buf, yuv_meta)
-            },
-            (RawFrame::RGBA(rgba),YuvFormat::NV12) =>{
+    fn convert_into_yuv(
+        &self,
+        width: usize,
+        height: usize,
+        yuv_buf: &mut Vec<u8>,
+        yuv_meta: &YuvMeta,
+    ) {
+        match (self, &yuv_meta.format) {
+            (RawFrame::RGBA(rgba), YuvFormat::I420) => {
+                rgba_to_i420(width, height, rgba, yuv_buf, yuv_meta)
+            }
+            (RawFrame::RGBA(rgba), YuvFormat::NV12) => {
                 todo!()
-            },
-            (RawFrame::BGRA(bgra),YuvFormat::I420) =>{
-                bgra_to_i420(width,height,bgra, yuv_buf, yuv_meta)
-            },
-            (RawFrame::BGRA(bgra),YuvFormat::NV12) =>{
+            }
+            (RawFrame::BGRA(bgra), YuvFormat::I420) => {
+                bgra_to_i420(width, height, bgra, yuv_buf, yuv_meta)
+            }
+            (RawFrame::BGRA(bgra), YuvFormat::NV12) => {
                 todo!()
-            },
+            }
             _ => {}
         }
     }
@@ -90,7 +96,12 @@ pub trait EncoderApi {
     where
         Self: Sized;
 
-    fn encode(&mut self, yuv: &[u8], yuv_cfg: &YuvMeta, pts: i64) -> ResultType<Vec<EncodedVideoFrame>>;
+    fn encode(
+        &mut self,
+        yuv: &[u8],
+        yuv_cfg: &YuvMeta,
+        pts: i64,
+    ) -> ResultType<Vec<EncodedVideoFrame>>;
 
     fn set_bitrate(&mut self, bitrate: u32) -> ResultType<()>;
 }
@@ -99,6 +110,7 @@ pub struct DecoderCfg {
     pub vpx: VpxDecoderConfig,
 }
 
+#[derive(Debug)]
 pub struct YuvMeta {
     pub stride: [usize; 2],
     pub offset: [usize; 2],
@@ -171,7 +183,7 @@ impl Encoder {
             }
             _ => bail!("unsupported encoder type"),
         };
-        let  mut yuv_buf = Vec::new();
+        let yuv_buf = Vec::new();
         // yuv_buf.resize(yuv_cfg.length, 0);
         Ok(Encoder {
             encoder_cfg: config,
@@ -183,11 +195,16 @@ impl Encoder {
 
     pub fn encode_to_message(&mut self, frame: RawFrame, pts: i64) -> ResultType<Message> {
         let frames = match frame {
-            RawFrame::YUV(yuv) => self.codec.encode(yuv, &self.yuv_meta,pts)?, // TODO meta from quartz
+            RawFrame::YUV(yuv) => self.codec.encode(yuv, &self.yuv_meta, pts)?, // TODO meta from quartz
             _ => {
-                frame.convert_into_yuv(self.encoder_cfg.width, self.encoder_cfg.height, &mut self.yuv_buf, &self.yuv_meta);
-                self.codec.encode(&self.yuv_buf, &self.yuv_meta,pts)?
-            },
+                frame.convert_into_yuv(
+                    self.encoder_cfg.width,
+                    self.encoder_cfg.height,
+                    &mut self.yuv_buf,
+                    &self.yuv_meta,
+                );
+                self.codec.encode(&self.yuv_buf, &self.yuv_meta, pts)?
+            }
         };
 
         let mut msg_out = Message::new();
@@ -284,6 +301,7 @@ impl Encoder {
 
     #[inline]
     pub fn current_hw_encoder_name() -> Option<String> {
+        // TODO add codec_format
         #[cfg(feature = "hwcodec")]
         if check_hwcodec_config() {
             return HwEncoder::current_name().lock().unwrap().clone();

@@ -344,6 +344,8 @@ fn run(sp: GenericService) -> ResultType<()> {
     let encoder_cfg = match Encoder::current_hw_encoder_name() {
         Some(codec_name) => EncoderCfg {
             codec_name,
+            codec_format: CodecFormat::H265, // TODO
+            use_hwcodec: true,
             width: width as _,
             height: height as _,
             bitrate: bitrate as _,
