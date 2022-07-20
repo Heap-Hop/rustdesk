@@ -24,9 +24,8 @@ use hbb_common::tokio::sync::{
     Mutex as TokioMutex,
 };
 use scrap::{
-    codec::{Encoder, EncoderCfg, HwEncoderConfig},
-    vpxcodec::{VpxEncoderConfig, VpxVideoCodecId},
-    Capturer, Display, Frame,
+    codec::{CodecFormat, Encoder, EncoderCfg},
+    Capturer, Display, RawFrame,
 };
 use std::{
     collections::HashSet,
@@ -128,7 +127,7 @@ impl VideoFrameController {
 }
 
 trait TraitCapturer {
-    fn frame<'a>(&'a mut self, timeout: Duration) -> Result<Frame<'a>>;
+    fn frame(&mut self, timeout: Duration) -> Result<RawFrame>;
 
     #[cfg(windows)]
     fn is_gdi(&self) -> bool;
@@ -137,7 +136,7 @@ trait TraitCapturer {
 }
 
 impl TraitCapturer for Capturer {
-    fn frame<'a>(&'a mut self, timeout: Duration) -> Result<Frame<'a>> {
+    fn frame(&mut self, timeout: Duration) -> Result<RawFrame> {
         self.frame(timeout)
     }
 
@@ -204,11 +203,7 @@ fn check_display_changed(
 }
 
 // Capturer object is expensive, avoiding to create it frequently.
-fn create_capturer(
-    privacy_mode_id: i32,
-    display: Display,
-    use_yuv: bool,
-) -> ResultType<Box<dyn TraitCapturer>> {
+fn create_capturer(privacy_mode_id: i32, display: Display) -> ResultType<Box<dyn TraitCapturer>> {
     #[cfg(not(windows))]
     let c: Option<Box<dyn TraitCapturer>> = None;
     #[cfg(windows)]
@@ -267,8 +262,7 @@ fn create_capturer(
     let c = match c {
         Some(c1) => c1,
         None => {
-            let c1 =
-                Capturer::new(display, use_yuv).with_context(|| "Failed to create capturer")?;
+            let c1 = Capturer::new(display).with_context(|| "Failed to create capturer")?;
             log::debug!("Create capturer dxgi|gdi");
             Box::new(c1)
         }
@@ -297,7 +291,7 @@ pub fn test_create_capturer(privacy_mode_id: i32, timeout_millis: u64) -> bool {
     let test_begin = Instant::now();
     while test_begin.elapsed().as_millis() < timeout_millis as _ {
         if let Ok((_, _, display)) = get_current_display() {
-            if let Ok(_) = create_capturer(privacy_mode_id, display, true) {
+            if let Ok(_) = create_capturer(privacy_mode_id, display) {
                 return true;
             }
         }
@@ -348,20 +342,22 @@ fn run(sp: GenericService) -> ResultType<()> {
     log::info!("init bitrate={}, abr enabled:{}", bitrate, abr);
 
     let encoder_cfg = match Encoder::current_hw_encoder_name() {
-        Some(codec_name) => EncoderCfg::HW(HwEncoderConfig {
+        Some(codec_name) => EncoderCfg {
             codec_name,
-            width,
-            height,
+            width: width as _,
+            height: height as _,
             bitrate: bitrate as _,
-        }),
-        None => EncoderCfg::VPX(VpxEncoderConfig {
+            ..Default::default()
+        },
+        None => EncoderCfg {
             width: width as _,
             height: height as _,
             timebase: [1, 1000], // Output timestamp precision
             bitrate,
-            codec: VpxVideoCodecId::VP9,
+            codec_format: CodecFormat::VP9,
             num_threads: (num_cpus::get() / 2) as _,
-        }),
+            ..Default::default()
+        },
     };
 
     let mut encoder;
@@ -389,7 +385,7 @@ fn run(sp: GenericService) -> ResultType<()> {
     } else {
         log::info!("In privacy mode, the peer side cannot watch the screen");
     }
-    let mut c = create_capturer(captuerer_privacy_mode_id, display, encoder.use_yuv())?;
+    let mut c = create_capturer(captuerer_privacy_mode_id, display)?;
 
     if *SWITCH.lock().unwrap() {
         log::debug!("Broadcasting display switch");
@@ -490,7 +486,7 @@ fn run(sp: GenericService) -> ResultType<()> {
             Ok(frame) => {
                 let time = now - start;
                 let ms = (time.as_secs() * 1000 + time.subsec_millis() as u64) as i64;
-                let send_conn_ids = handle_one_frame(&sp, &frame, ms, &mut encoder)?;
+                let send_conn_ids = handle_one_frame(&sp, frame, ms, &mut encoder)?;
                 frame_controller.set_send(now, send_conn_ids);
                 #[cfg(windows)]
                 {
@@ -588,7 +584,7 @@ fn create_msg(vp9s: Vec<EncodedVideoFrame>) -> Message {
 #[inline]
 fn handle_one_frame(
     sp: &GenericService,
-    frame: &[u8],
+    frame: RawFrame,
     ms: i64,
     encoder: &mut Encoder,
 ) -> ResultType<HashSet<i32>> {

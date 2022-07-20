@@ -14,7 +14,7 @@ use cpal::{
 use magnum_opus::{Channels::*, Decoder as AudioDecoder};
 use scrap::{
     codec::{Decoder, DecoderCfg},
-    VpxDecoderConfig, VpxVideoCodecId,
+    CodecFormat as ScrapCodecFormat, VpxDecoderConfig,
 };
 
 use sha2::{Digest, Sha256};
@@ -738,7 +738,7 @@ impl VideoHandler {
         VideoHandler {
             decoder: Decoder::new(DecoderCfg {
                 vpx: VpxDecoderConfig {
-                    codec: VpxVideoCodecId::VP9,
+                    codec: ScrapCodecFormat::VP9,
                     num_threads: (num_cpus::get() / 2) as _,
                 },
             }),
@@ -763,7 +763,7 @@ impl VideoHandler {
     pub fn reset(&mut self) {
         self.decoder = Decoder::new(DecoderCfg {
             vpx: VpxDecoderConfig {
-                codec: VpxVideoCodecId::VP9,
+                codec: ScrapCodecFormat::VP9,
                 num_threads: 1,
             },
         });

@@ -2,6 +2,8 @@ use std::{io, ptr, slice};
 
 use libc;
 
+use crate::RawFrame;
+
 use super::ffi::*;
 use super::Display;
 
@@ -12,13 +14,11 @@ pub struct Capturer {
     buffer: *const u8,
 
     size: usize,
-    use_yuv: bool,
-    yuv: Vec<u8>,
     saved_raw_data: Vec<u128>, // for faster compare and copy
 }
 
 impl Capturer {
-    pub fn new(display: Display, use_yuv: bool) -> io::Result<Capturer> {
+    pub fn new(display: Display) -> io::Result<Capturer> {
         // Calculate dimensions.
 
         let pixel_width = 4;
@@ -67,8 +67,6 @@ impl Capturer {
             xcbid,
             buffer,
             size,
-            use_yuv,
-            yuv: Vec::new(),
             saved_raw_data: Vec::new(),
         };
         Ok(c)
@@ -99,16 +97,11 @@ impl Capturer {
         }
     }
 
-    pub fn frame<'b>(&'b mut self) -> std::io::Result<&'b [u8]> {
+    pub fn frame(&mut self) -> std::io::Result<RawFrame> {
         self.get_image();
         let result = unsafe { slice::from_raw_parts(self.buffer, self.size) };
         crate::would_block_if_equal(&mut self.saved_raw_data, result)?;
-        Ok(if self.use_yuv {
-            crate::common::bgra_to_i420(self.display.w(), self.display.h(), &result, &mut self.yuv);
-            &self.yuv[..]
-        } else {
-            result
-        })
+        Ok(RawFrame::BGRA(result))
     }
 }
 

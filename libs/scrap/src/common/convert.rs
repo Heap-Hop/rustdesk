@@ -1,3 +1,5 @@
+use crate::{YuvFormat, YuvMeta};
+
 use super::vpx::*;
 use std::os::raw::c_int;
 
@@ -115,6 +117,55 @@ extern "C" {
     ) -> c_int;
 }
 
+/// return
+/// i420: [stride_y, stride_uv], [offset_u, offset_v], length
+/// nv12: [stride_y, stride_uv], [offset_uv, unused], length
+pub fn get_yuv_stride(
+    format: &YuvFormat,
+    width: usize,
+    height: usize,
+    stride_align: usize,
+) -> ([usize; 2], [usize; 2], usize) {
+    let mut img = Default::default();
+    match format {
+        YuvFormat::I420 => unsafe {
+            vpx_img_wrap(
+                &mut img,
+                vpx_img_fmt::VPX_IMG_FMT_I420,
+                width as _,
+                height as _,
+                stride_align as _,
+                0x1 as _,
+            );
+            let offset_u = img.planes[1] as usize - img.planes[0] as usize;
+            let offset_v = img.planes[2] as usize - img.planes[0] as usize;
+            let length = height * (img.stride[0] + img.stride[1] / 2) as usize;
+            (
+                [img.stride[0] as _, img.stride[1] as _],
+                [offset_u, offset_v],
+                length,
+            )
+        },
+        YuvFormat::NV12 => unsafe {
+            vpx_img_wrap(
+                &mut img,
+                vpx_img_fmt::VPX_IMG_FMT_NV12,
+                width as _,
+                height as _,
+                stride_align as _,
+                0x1 as _,
+            );
+            let offset_uv = img.planes[1] as usize - img.planes[0] as usize;
+            let length = height * (img.stride[0] + img.stride[1] / 2) as usize;
+            (
+                [img.stride[0] as _, img.stride[1] as _],
+                [offset_uv, 0],
+                length,
+            )
+        },
+    }
+}
+
 // https://github.com/webmproject/libvpx/blob/master/vpx/src/vpx_image.c
 #[inline]
 fn get_vpx_i420_stride(
@@ -166,46 +217,42 @@ pub fn i420_to_rgb(width: usize, height: usize, src: &[u8], dst: &mut Vec<u8>) {
     };
 }
 
-pub fn bgra_to_i420(width: usize, height: usize, src: &[u8], dst: &mut Vec<u8>) {
-    let (_, h, dst_stride_y, dst_stride_uv, u, v) =
-        get_vpx_i420_stride(width, height, super::STRIDE_ALIGN);
-    dst.resize(h * dst_stride_y * 2, 0); // waste some memory to ensure memory safety
+pub fn bgra_to_i420(width: usize, height: usize, src: &[u8], dst: &mut Vec<u8>, yuv_meta: &YuvMeta) {
+    dst.resize(yuv_meta.length, 0);
     let dst_y = dst.as_mut_ptr();
-    let dst_u = dst[u..].as_mut_ptr();
-    let dst_v = dst[v..].as_mut_ptr();
+    let dst_u = dst[yuv_meta.offset[0]..].as_mut_ptr();
+    let dst_v = dst[yuv_meta.offset[1]..].as_mut_ptr();
     unsafe {
         ARGBToI420(
             src.as_ptr(),
             (src.len() / height) as _,
             dst_y,
-            dst_stride_y as _,
+            yuv_meta.stride[0] as _,
             dst_u,
-            dst_stride_uv as _,
+            yuv_meta.stride[1] as _,
             dst_v,
-            dst_stride_uv as _,
+            yuv_meta.stride[1] as _,
             width as _,
             height as _,
         );
     }
 }
 
-pub fn rgba_to_i420(width: usize, height: usize, src: &[u8], dst: &mut Vec<u8>) {
-    let (_, h, dst_stride_y, dst_stride_uv, u, v) =
-        get_vpx_i420_stride(width, height, super::STRIDE_ALIGN);
-    dst.resize(h * dst_stride_y * 2, 0); // waste some memory to ensure memory safety
+pub fn rgba_to_i420(width: usize, height: usize, src: &[u8], dst: &mut Vec<u8>, yuv_meta: &YuvMeta) {
+    dst.resize(yuv_meta.length, 0);
     let dst_y = dst.as_mut_ptr();
-    let dst_u = dst[u..].as_mut_ptr();
-    let dst_v = dst[v..].as_mut_ptr();
+    let dst_u = dst[yuv_meta.offset[0]..].as_mut_ptr();
+    let dst_v = dst[yuv_meta.offset[1]..].as_mut_ptr();
     unsafe {
         ABGRToI420(
             src.as_ptr(),
             (src.len() / height) as _,
             dst_y,
-            dst_stride_y as _,
+            yuv_meta.stride[0] as _,
             dst_u,
-            dst_stride_uv as _,
+            yuv_meta.stride[1] as _,
             dst_v,
-            dst_stride_uv as _,
+            yuv_meta.stride[1] as _,
             width as _,
             height as _,
         );

@@ -7,12 +7,14 @@ use std::{
 
 #[cfg(feature = "hwcodec")]
 use crate::hwcodec::*;
-use crate::vpxcodec::*;
+use crate::{get_yuv_stride, rgba_to_i420, vpxcodec::*, STRIDE_ALIGN, bgra_to_i420};
 
 use hbb_common::{
     anyhow::anyhow,
-    log,
-    message_proto::{video_frame, EncodedVideoFrames, Message, VideoCodecState},
+    bail, log,
+    message_proto::{
+        video_frame, EncodedVideoFrame, EncodedVideoFrames, Message, VideoCodecState, VideoFrame,
+    },
     ResultType,
 };
 #[cfg(feature = "hwcodec")]
@@ -25,28 +27,70 @@ lazy_static::lazy_static! {
 }
 const SCORE_VPX: i32 = 90;
 
-#[derive(Debug, Clone)]
-pub struct HwEncoderConfig {
-    pub codec_name: String,
-    pub width: usize,
-    pub height: usize,
-    pub bitrate: i32,
+pub enum RawFrame<'a> {
+    RGBA(&'a [u8]),
+    BGRA(&'a [u8]),
+    YUV(&'a [u8] , ), // TODO frame + meta
 }
 
-#[derive(Debug, Clone)]
-pub enum EncoderCfg {
-    VPX(VpxEncoderConfig),
-    HW(HwEncoderConfig),
+impl<'a> RawFrame<'a> {
+    fn convert_into_yuv(&self, width: usize, height: usize ,yuv_buf: &mut Vec<u8>, yuv_meta: &YuvMeta) {
+        match (self,&yuv_meta.format) {
+            (RawFrame::RGBA(rgba),YuvFormat::I420) =>{
+                rgba_to_i420(width,height,rgba, yuv_buf, yuv_meta)
+            },
+            (RawFrame::RGBA(rgba),YuvFormat::NV12) =>{
+                todo!()
+            },
+            (RawFrame::BGRA(bgra),YuvFormat::I420) =>{
+                bgra_to_i420(width,height,bgra, yuv_buf, yuv_meta)
+            },
+            (RawFrame::BGRA(bgra),YuvFormat::NV12) =>{
+                todo!()
+            },
+            _ => {}
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum CodecFormat {
+    VP8,
+    #[default]
+    VP9,
+    H264,
+    H265,
+}
+
+#[derive(Debug, Clone, Default)]
+pub enum YuvFormat {
+    #[default]
+    I420,
+    NV12,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct EncoderCfg {
+    pub codec_name: String,
+    pub codec_format: CodecFormat,
+    pub use_hwcodec: bool,
+    /// The width (in pixels).
+    pub width: usize,
+    /// The height (in pixels).
+    pub height: usize,
+    /// The timebase numerator and denominator (in seconds).
+    pub timebase: [i32; 2],
+    /// The target bitrate (in kilobits per second).
+    pub bitrate: u32,
+    pub num_threads: u32,
 }
 
 pub trait EncoderApi {
-    fn new(cfg: EncoderCfg) -> ResultType<Self>
+    fn new(cfg: &EncoderCfg) -> ResultType<Self>
     where
         Self: Sized;
 
-    fn encode_to_message(&mut self, frame: &[u8], ms: i64) -> ResultType<Message>;
-
-    fn use_yuv(&self) -> bool;
+    fn encode(&mut self, yuv: &[u8], yuv_cfg: &YuvMeta, pts: i64) -> ResultType<Vec<EncodedVideoFrame>>;
 
     fn set_bitrate(&mut self, bitrate: u32) -> ResultType<()>;
 }
@@ -55,7 +99,29 @@ pub struct DecoderCfg {
     pub vpx: VpxDecoderConfig,
 }
 
+pub struct YuvMeta {
+    pub stride: [usize; 2],
+    pub offset: [usize; 2],
+    pub length: usize,
+    pub format: YuvFormat,
+}
+
+impl YuvMeta {
+    fn new(format: YuvFormat, width: usize, height: usize) -> Self {
+        let res = get_yuv_stride(&format, width, height, STRIDE_ALIGN);
+        YuvMeta {
+            stride: res.0,
+            offset: res.1,
+            length: res.2,
+            format,
+        }
+    }
+}
+
 pub struct Encoder {
+    encoder_cfg: EncoderCfg,
+    yuv_buf: Vec<u8>,
+    yuv_meta: YuvMeta,
     pub codec: Box<dyn EncoderApi>,
 }
 
@@ -91,24 +157,58 @@ pub enum EncoderUpdate {
 impl Encoder {
     pub fn new(config: EncoderCfg) -> ResultType<Encoder> {
         log::info!("new encoder:{:?}", config);
-        match config {
-            EncoderCfg::VPX(_) => Ok(Encoder {
-                codec: Box::new(VpxEncoder::new(config)?),
-            }),
-
+        let yuv_meta = YuvMeta::new(YuvFormat::default(), config.width as _, config.height as _);
+        let codec: Box<dyn EncoderApi> = match (&config.use_hwcodec, &config.codec_format) {
+            (false, CodecFormat::VP9) => Box::new(VpxEncoder::new(&config)?),
             #[cfg(feature = "hwcodec")]
-            EncoderCfg::HW(_) => match HwEncoder::new(config) {
-                Ok(hw) => Ok(Encoder {
-                    codec: Box::new(hw),
-                }),
-                Err(e) => {
+            (true, CodecFormat::H264 | CodecFormat::H265) => {
+                if let Ok(codec) = HwEncoder::new(&config) {
+                    Box::new(codec)
+                } else {
                     HwEncoder::best(true, true);
-                    Err(e)
+                    bail!("unsupported encoder type");
                 }
+            }
+            _ => bail!("unsupported encoder type"),
+        };
+        let  mut yuv_buf = Vec::new();
+        // yuv_buf.resize(yuv_cfg.length, 0);
+        Ok(Encoder {
+            encoder_cfg: config,
+            yuv_buf,
+            yuv_meta,
+            codec,
+        })
+    }
+
+    pub fn encode_to_message(&mut self, frame: RawFrame, pts: i64) -> ResultType<Message> {
+        let frames = match frame {
+            RawFrame::YUV(yuv) => self.codec.encode(yuv, &self.yuv_meta,pts)?, // TODO meta from quartz
+            _ => {
+                frame.convert_into_yuv(self.encoder_cfg.width, self.encoder_cfg.height, &mut self.yuv_buf, &self.yuv_meta);
+                self.codec.encode(&self.yuv_buf, &self.yuv_meta,pts)?
             },
-            #[cfg(not(feature = "hwcodec"))]
-            _ => Err(anyhow!("unsupported encoder type")),
+        };
+
+        let mut msg_out = Message::new();
+        let mut vf = VideoFrame::new();
+        match self.encoder_cfg.codec_format {
+            CodecFormat::VP9 => vf.set_vp9s(EncodedVideoFrames {
+                frames,
+                ..Default::default()
+            }),
+            CodecFormat::H264 => vf.set_h264s(EncodedVideoFrames {
+                frames,
+                ..Default::default()
+            }),
+            CodecFormat::H265 => vf.set_h265s(EncodedVideoFrames {
+                frames,
+                ..Default::default()
+            }),
+            _ => bail!(""),
         }
+        msg_out.set_video_frame(vf);
+        Ok(msg_out)
     }
 
     // TODO
@@ -181,6 +281,7 @@ impl Encoder {
             let _ = update;
         }
     }
+
     #[inline]
     pub fn current_hw_encoder_name() -> Option<String> {
         #[cfg(feature = "hwcodec")]

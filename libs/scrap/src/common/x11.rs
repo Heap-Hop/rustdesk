@@ -1,11 +1,11 @@
-use crate::x11;
+use crate::{x11, RawFrame};
 use std::{io, ops, time::Duration};
 
 pub struct Capturer(x11::Capturer);
 
 impl Capturer {
-    pub fn new(display: Display, yuv: bool) -> io::Result<Capturer> {
-        x11::Capturer::new(display.0, yuv).map(Capturer)
+    pub fn new(display: Display) -> io::Result<Capturer> {
+        x11::Capturer::new(display.0).map(Capturer)
     }
 
     pub fn width(&self) -> usize {
@@ -16,8 +16,8 @@ impl Capturer {
         self.0.display().rect().h as usize
     }
 
-    pub fn frame<'a>(&'a mut self, _timeout: Duration) -> io::Result<Frame<'a>> {
-        Ok(Frame(self.0.frame()?))
+    pub fn frame(&mut self, _timeout: Duration) -> io::Result<RawFrame> {
+        self.0.frame()
     }
 }
 
