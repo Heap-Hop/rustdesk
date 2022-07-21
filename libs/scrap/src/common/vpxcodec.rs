@@ -78,7 +78,7 @@ macro_rules! call_vpx_ptr {
 }
 
 impl EncoderApi for VpxEncoder {
-    fn new(config: &crate::codec::EncoderCfg) -> ResultType<Self>
+    fn new(config: &EncoderCfg, _yuv_cfg: &YuvMeta) -> ResultType<Self>
     where
         Self: Sized,
     {
@@ -182,8 +182,7 @@ impl EncoderApi for VpxEncoder {
         })
     }
 
-    fn encode(&mut self, yuv: &[u8], yuv_cfg: &YuvMeta, pts: i64) -> ResultType<Vec<EncodedVideoFrame>> {
-        // assert!(2 * yuv.len() >= 3 * self.width * self.height);
+    fn encode(&mut self, yuv: &[u8], pts: i64) -> ResultType<Vec<EncodedVideoFrame>> {
 
         let mut image = Default::default();
         

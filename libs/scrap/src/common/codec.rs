@@ -92,16 +92,11 @@ pub struct EncoderCfg {
 }
 
 pub trait EncoderApi {
-    fn new(cfg: &EncoderCfg) -> ResultType<Self>
+    fn new(cfg: &EncoderCfg, yuv_cfg: &YuvMeta) -> ResultType<Self>
     where
         Self: Sized;
 
-    fn encode(
-        &mut self,
-        yuv: &[u8],
-        yuv_cfg: &YuvMeta,
-        pts: i64,
-    ) -> ResultType<Vec<EncodedVideoFrame>>;
+    fn encode(&mut self, yuv: &[u8], pts: i64) -> ResultType<Vec<EncodedVideoFrame>>;
 
     fn set_bitrate(&mut self, bitrate: u32) -> ResultType<()>;
 }
@@ -171,10 +166,10 @@ impl Encoder {
         log::info!("new encoder:{:?}", config);
         let yuv_meta = YuvMeta::new(YuvFormat::default(), config.width as _, config.height as _);
         let codec: Box<dyn EncoderApi> = match (&config.use_hwcodec, &config.codec_format) {
-            (false, CodecFormat::VP9) => Box::new(VpxEncoder::new(&config)?),
+            (false, CodecFormat::VP9) => Box::new(VpxEncoder::new(&config, &yuv_meta)?),
             #[cfg(feature = "hwcodec")]
             (true, CodecFormat::H264 | CodecFormat::H265) => {
-                if let Ok(codec) = HwEncoder::new(&config) {
+                if let Ok(codec) = HwEncoder::new(&config, &yuv_meta) {
                     Box::new(codec)
                 } else {
                     HwEncoder::best(true, true);
@@ -195,7 +190,7 @@ impl Encoder {
 
     pub fn encode_to_message(&mut self, frame: RawFrame, pts: i64) -> ResultType<Message> {
         let frames = match frame {
-            RawFrame::YUV(yuv) => self.codec.encode(yuv, &self.yuv_meta, pts)?, // TODO meta from quartz
+            RawFrame::YUV(yuv) => self.codec.encode(yuv, pts)?, // TODO meta from quartz
             _ => {
                 frame.convert_into_yuv(
                     self.encoder_cfg.width,
@@ -203,7 +198,7 @@ impl Encoder {
                     &mut self.yuv_buf,
                     &self.yuv_meta,
                 );
-                self.codec.encode(&self.yuv_buf, &self.yuv_meta, pts)?
+                self.codec.encode(&self.yuv_buf, pts)?
             }
         };
 

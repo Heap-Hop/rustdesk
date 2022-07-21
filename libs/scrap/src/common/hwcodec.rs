@@ -4,10 +4,11 @@ use crate::{
 };
 use hbb_common::{
     anyhow::{anyhow, Context},
+    bail,
     config::HwCodecConfig,
     lazy_static, log,
     message_proto::{EncodedVideoFrame, EncodedVideoFrames, Message, VideoFrame},
-    ResultType, bail,
+    ResultType,
 };
 use hwcodec::{
     decode::{DecodeContext, DecodeFrame, Decoder},
@@ -15,7 +16,8 @@ use hwcodec::{
     ffmpeg::{CodecInfo, CodecInfos, DataFormat},
     AVPixelFormat,
     Quality::{self, *},
-    RateContorl::{self, *}, AV_NUM_DATA_POINTERS,
+    RateContorl::{self, *},
+    AV_NUM_DATA_POINTERS,
 };
 use std::sync::{Arc, Mutex};
 
@@ -36,14 +38,24 @@ pub struct HwEncoder {
     encoder: Encoder,
     // yuv: Vec<u8>,
     // pub format: DataFormat,
-    pub pixfmt: AVPixelFormat,
+    // pub pixfmt: AVPixelFormat,
 }
 
 impl EncoderApi for HwEncoder {
-    fn new(cfg: &EncoderCfg) -> ResultType<Self>
+    fn new(cfg: &EncoderCfg, yuv_cfg: &crate::YuvMeta) -> ResultType<Self>
     where
         Self: Sized,
     {
+        let mut linesize = Vec::<i32>::new();
+        linesize.resize(AV_NUM_DATA_POINTERS as _, 0);
+        linesize[0] = yuv_cfg.stride[0] as _;
+        linesize[1] = yuv_cfg.stride[1] as _;
+        linesize[2] = yuv_cfg.stride[1] as _;
+        let mut offset = Vec::<i32>::new();
+        offset.resize(AV_NUM_DATA_POINTERS as _, 0);
+        offset[0] = yuv_cfg.offset[0] as _;
+        offset[1] = yuv_cfg.offset[1] as _;
+
         if !cfg.use_hwcodec {
             bail!("Failed to create encoder, cfg.use_hwcodec is false");
         }
@@ -52,14 +64,15 @@ impl EncoderApi for HwEncoder {
             width: cfg.width as _,
             height: cfg.height as _,
             pixfmt: DEFAULT_PIXFMT,
-            // stride: cfg.st,
-            // offset: [usize; 2],
+            linesize,
+            offset,
             bitrate: (cfg.bitrate * 1000) as _,
             timebase: DEFAULT_TIME_BASE,
             gop: DEFAULT_GOP,
             quality: DEFAULT_HW_QUALITY,
             rc: DEFAULT_RC,
         };
+        // TODO format_from_name
         let format = match Encoder::format_from_name(cfg.codec_name.clone()) {
             Ok(format) => format,
             Err(_) => {
@@ -69,42 +82,21 @@ impl EncoderApi for HwEncoder {
                 )))
             }
         };
-        match Encoder::new(ctx.clone()) {
-            Ok(encoder) => Ok(HwEncoder {
-                encoder,
-                // yuv: vec![],
-                // format,
-                pixfmt: ctx.pixfmt,
-            }),
+
+        match Encoder::new(ctx) {
+            Ok(encoder) => Ok(HwEncoder { encoder }),
             Err(_) => Err(anyhow!(format!("Failed to create encoder"))),
         }
     }
 
-    fn encode(
-        &mut self,
-        yuv: &[u8],
-        yuv_cfg: &crate::YuvMeta,
-        pts: i64,
-    ) -> ResultType<Vec<EncodedVideoFrame>> {
-        let mut linesize = Vec::<i32>::new();
-        linesize.resize(AV_NUM_DATA_POINTERS as _, 0);
-        linesize[0] = yuv_cfg.stride[0] as _;
-        linesize[1] = yuv_cfg.stride[1] as _ ;
-        linesize[2] = yuv_cfg.stride[1] as _;
-        let mut offset = Vec::<i32>::new();
-        offset.resize(AV_NUM_DATA_POINTERS as _, 0);
-        offset[0] = yuv_cfg.offset[0] as _;
-        offset[1] = yuv_cfg.offset[1] as _;
-
+    fn encode(&mut self, yuv: &[u8], _pts: i64) -> ResultType<Vec<EncodedVideoFrame>> {
         let mut encoder_frames = Vec::<EncodeFrame>::new();
-        if let Ok(frames) = self.encoder.encode(yuv, linesize, offset) {
+        if let Ok(frames) = self.encoder.encode(yuv) {
             encoder_frames.append(frames);
         } else {
             bail!("Failed to encode");
         }
 
-        // let mut msg_out = Message::new();
-        // let mut vf = VideoFrame::new();
         let mut frames = Vec::new();
         for frame in encoder_frames {
             frames.push(EncodedVideoFrame {
@@ -114,20 +106,6 @@ impl EncoderApi for HwEncoder {
             });
         }
         Ok(frames)
-        // if frames.len() > 0 {
-        //     let frames = EncodedVideoFrames {
-        //         frames: frames.into(),
-        //         ..Default::default()
-        //     };
-        //     match self.format {
-        //         DataFormat::H264 => vf.set_h264s(frames),
-        //         DataFormat::H265 => vf.set_h265s(frames),
-        //     }
-        //     msg_out.set_video_frame(vf);
-        //     Ok(msg_out)
-        // } else {
-        //     Err(anyhow!("no valid frame"))
-        // }
     }
 
     fn set_bitrate(&mut self, bitrate: u32) -> ResultType<()> {
@@ -156,6 +134,8 @@ impl HwEncoder {
                 width: 1920,
                 height: 1080,
                 pixfmt: DEFAULT_PIXFMT,
+                linesize: vec![],
+                offset: vec![], // TODO
                 bitrate: 0,
                 timebase: DEFAULT_TIME_BASE,
                 gop: DEFAULT_GOP,
