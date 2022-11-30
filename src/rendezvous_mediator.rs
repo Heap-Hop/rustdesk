@@ -278,6 +278,7 @@ impl RendezvousMediator {
             server,
             rr.secure,
             false,
+            rr.request_region,
         )
         .await
     }
@@ -290,6 +291,7 @@ impl RendezvousMediator {
         server: ServerPtr,
         secure: bool,
         initiate: bool,
+        request_region: String,
     ) -> ResultType<()> {
         let peer_addr = AddrMangle::decode(&socket_addr);
         log::info!(
@@ -311,6 +313,7 @@ impl RendezvousMediator {
         let mut rr = RelayResponse {
             socket_addr: socket_addr.into(),
             version: crate::VERSION.to_owned(),
+            request_region,
             ..Default::default()
         };
         if initiate {
@@ -344,6 +347,7 @@ impl RendezvousMediator {
             local_addr: AddrMangle::encode(local_addr).into(),
             relay_server,
             version: crate::VERSION.to_owned(),
+            request_region: fla.request_region,
             ..Default::default()
         });
         let bytes = msg_out.write_to_bytes()?;
@@ -366,6 +370,7 @@ impl RendezvousMediator {
                     server,
                     true,
                     true,
+                    ph.request_region
                 )
                 .await;
         }
@@ -391,6 +396,7 @@ impl RendezvousMediator {
             relay_server,
             nat_type: nat_type.into(),
             version: crate::VERSION.to_owned(),
+            request_region: ph.request_region,
             ..Default::default()
         });
         let bytes = msg_out.write_to_bytes()?;
