@@ -13,6 +13,7 @@ import 'package:flutter_hbb/models/file_model.dart';
 import 'package:get/get.dart';
 import 'package:provider/provider.dart';
 import 'package:wakelock/wakelock.dart';
+import '../../common/widgets/overlay.dart';
 import '../../consts.dart';
 import '../../desktop/widgets/material_mod_popup_menu.dart' as mod_menu;
 
@@ -74,6 +75,8 @@ class _FileManagerPageState extends State<FileManagerPage>
   final _listSearchBufferLocal = TimeoutStringBuffer();
   final _listSearchBufferRemote = TimeoutStringBuffer();
 
+  final overlayState = PenetrableOverlayState();
+
   /// [_lastClickTime], [_lastClickEntry] help to handle double click
   int _lastClickTime =
       DateTime.now().millisecondsSinceEpoch - bind.getDoubleClickTime() - 1000;
@@ -115,6 +118,8 @@ class _FileManagerPageState extends State<FileManagerPage>
     // register location listener
     _locationNodeLocal.addListener(onLocalLocationFocusChanged);
     _locationNodeRemote.addListener(onRemoteLocationFocusChanged);
+
+    _ffi.dialogManager.setPenetrableOverlayState(overlayState);
   }
 
   @override
@@ -137,10 +142,8 @@ class _FileManagerPageState extends State<FileManagerPage>
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    return Overlay(initialEntries: [
-      OverlayEntry(builder: (context) {
-        _ffi.dialogManager.setOverlayState(Overlay.of(context));
-        return ChangeNotifierProvider.value(
+    return PenetrableOverlay(
+        underlying: ChangeNotifierProvider.value(
             value: _ffi.fileModel,
             child: Consumer<FileModel>(builder: (context, model, child) {
               return Scaffold(
@@ -153,9 +156,8 @@ class _FileManagerPageState extends State<FileManagerPage>
                   ],
                 ),
               );
-            }));
-      })
-    ]);
+            })),
+        state: overlayState);
   }
 
   Widget menu({bool isLocal = false}) {

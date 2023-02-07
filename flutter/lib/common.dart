@@ -370,19 +370,15 @@ class Dialog<T> {
 }
 
 class OverlayDialogManager {
-  OverlayState? _overlayState;
   final Map<String, Dialog> _dialogs = {};
   int _tagCount = 0;
 
   OverlayEntry? _mobileActionsOverlayEntry;
 
-  /// By default OverlayDialogManager use global overlay
-  OverlayDialogManager() {
-    _overlayState = globalKey.currentState?.overlay;
-  }
+  PenetrableOverlayState? pOverlayState;
 
-  void setOverlayState(OverlayState? overlayState) {
-    _overlayState = overlayState;
+  void setPenetrableOverlayState(PenetrableOverlayState state) {
+    pOverlayState = state;
   }
 
   void dismissAll() {
@@ -405,8 +401,9 @@ class OverlayDialogManager {
       String? tag,
       bool useAnimation = true,
       bool forceGlobal = false}) {
-    final overlayState =
-        forceGlobal ? globalKey.currentState?.overlay : _overlayState;
+    final overlayState = forceGlobal
+        ? globalKey.currentState?.overlay
+        : pOverlayState?.getOverlayStateOrGlobal();
 
     if (overlayState == null) {
       return Future.error(
@@ -510,7 +507,8 @@ class OverlayDialogManager {
 
   void showMobileActionsOverlay({FFI? ffi}) {
     if (_mobileActionsOverlayEntry != null) return;
-    if (_overlayState == null) return;
+    final overlayState = pOverlayState?.getOverlayStateOrGlobal();
+    if (overlayState == null) return;
 
     // compute overlay position
     final screenW = MediaQuery.of(globalKey.currentContext!).size.width;
@@ -536,7 +534,7 @@ class OverlayDialogManager {
         onHidePressed: () => hideMobileActionsOverlay(),
       );
     });
-    _overlayState!.insert(overlay);
+    overlayState.insert(overlay);
     _mobileActionsOverlayEntry = overlay;
   }
 

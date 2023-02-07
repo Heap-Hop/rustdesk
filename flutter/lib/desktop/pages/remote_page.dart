@@ -135,7 +135,7 @@ class _RemotePageState extends State<RemotePage>
     //   });
     //   _isCustomCursorInited = true;
     // }
-
+    _ffi.dialogManager.setPenetrableOverlayState(overlayState);
     _ffi.chatModel.setPenetrableOverlayState(overlayState);
     // make remote page penetrable automatically, effective for chat over remote
     overlayState.onMiddleBlockedClick = () {

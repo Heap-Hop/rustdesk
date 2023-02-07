@@ -13,6 +13,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../common.dart';
 import '../../common/widgets/chat_page.dart';
+import '../../common/widgets/overlay.dart';
 import '../../models/platform_model.dart';
 import '../../models/server_model.dart';
 
@@ -26,6 +27,8 @@ class DesktopServerPage extends StatefulWidget {
 class _DesktopServerPageState extends State<DesktopServerPage>
     with WindowListener, AutomaticKeepAliveClientMixin {
   final tabController = gFFI.serverModel.tabController;
+  final overlayState = PenetrableOverlayState();
+
   @override
   void initState() {
     gFFI.ffiModel.updateEventListener("");
@@ -36,6 +39,7 @@ class _DesktopServerPageState extends State<DesktopServerPage>
     tabController.onSelected = (_, id) {
       windowManager.setTitle(getWindowNameWithId(id));
     };
+    gFFI.dialogManager.setPenetrableOverlayState(overlayState);
     super.initState();
   }
 
@@ -68,26 +72,21 @@ class _DesktopServerPageState extends State<DesktopServerPage>
         ],
         child: Consumer<ServerModel>(
             builder: (context, serverModel, child) => Container(
-                  decoration: BoxDecoration(
-                      border:
-                          Border.all(color: MyTheme.color(context).border!)),
-                  child: Overlay(initialEntries: [
-                    OverlayEntry(builder: (context) {
-                      gFFI.dialogManager.setOverlayState(Overlay.of(context));
-                      return Scaffold(
-                        backgroundColor: Theme.of(context).backgroundColor,
-                        body: Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.start,
-                            children: [
-                              Expanded(child: ConnectionManager()),
-                            ],
-                          ),
+                decoration: BoxDecoration(
+                    border: Border.all(color: MyTheme.color(context).border!)),
+                child: PenetrableOverlay(
+                    underlying: Scaffold(
+                      backgroundColor: Theme.of(context).backgroundColor,
+                      body: Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.start,
+                          children: [
+                            Expanded(child: ConnectionManager()),
+                          ],
                         ),
-                      );
-                    })
-                  ]),
-                )));
+                      ),
+                    ),
+                    state: overlayState))));
   }
 
   @override

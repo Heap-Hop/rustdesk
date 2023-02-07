@@ -11,6 +11,7 @@ import 'package:get/get.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../../common/shared_state.dart';
+import '../../common/widgets/overlay.dart';
 
 class DesktopTabPage extends StatefulWidget {
   const DesktopTabPage({Key? key}) : super(key: key);
@@ -38,6 +39,7 @@ class DesktopTabPage extends StatefulWidget {
 
 class _DesktopTabPageState extends State<DesktopTabPage> {
   final tabController = DesktopTabController(tabType: DesktopTabType.main);
+  final overlayState = PenetrableOverlayState();
 
   @override
   void initState() {
@@ -53,6 +55,7 @@ class _DesktopTabPageState extends State<DesktopTabPage> {
         page: DesktopHomePage(
           key: const ValueKey(kTabLabelHomePage),
         )));
+    gFFI.dialogManager.setPenetrableOverlayState(overlayState);
   }
 
   @override
@@ -64,10 +67,8 @@ class _DesktopTabPageState extends State<DesktopTabPage> {
   @override
   Widget build(BuildContext context) {
     final tabWidget = Container(
-      child: Overlay(initialEntries: [
-        OverlayEntry(builder: (context) {
-          gFFI.dialogManager.setOverlayState(Overlay.of(context));
-          return Scaffold(
+      child: PenetrableOverlay(
+          underlying: Scaffold(
               backgroundColor: Theme.of(context).backgroundColor,
               body: DesktopTab(
                 controller: tabController,
@@ -77,9 +78,8 @@ class _DesktopTabPageState extends State<DesktopTabPage> {
                   onTap: DesktopTabPage.onAddSetting,
                   isClose: false,
                 ),
-              ));
-        })
-      ]),
+              )),
+          state: overlayState),
     );
     return Platform.isMacOS
         ? tabWidget
